@@ -9,6 +9,50 @@ module BeanstalkProtocol
   PUT_CMD = /\Aput (\d+) (\d+) (\d+) (\d+)\r\n\z/
   # use <tube>\r\n
   USE_CMD = /\Ause ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  # reserve\r\n
+  RESERVE_CMD = /\Areserve ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  # reserve-with-timeout <seconds>\r\n
+  RESERVE_WITH_TIMEOUT_CMD = /\Areserve-with-timeout (\d+)\r\n\z/
+  # delete <id>\r\n
+  DELETE_CMD = /\Adelete (\d+)\r\n\z/
+  # release <id> <pri> <delay>\r\n
+  RELEASE_CMD = /\Arelease (\d+) (\d+) (\d+)\r\n\z/
+  # bury <id> <pri>\r\n
+  BURY_CMD = /\Abury (\d+) (\d+)\r\n\z/
+  # touch <id>\r\n
+  TOUCH_CMD = /\Atouch (\d+)\r\n\z/
+  # watch <tube>\r\n
+  WATCH_CMD = /\Awatch ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  # ignore <tube>\r\n
+  IGNORE_CMD = /\Aignore ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  # peek <id>\r\n
+  PEEK_CMD = /\Apeek (\d+)\r\n\z/
+  # peek-ready\r\n
+  PEEK_READY_CMD = /\Apeek-ready\r\n\z/
+  # peek-delayed\r\n
+  PEEK_DELAYED_CMD = /\Apeek-delayed\r\n\z/
+  # peek-buried\r\n
+  PEEK_BURIED_CMD = /\Apeek-buried\r\n\z/
+  # kick <bound>\r\n
+  KICK_CMD = /\Akick (\d+)\r\n\z/
+  # kick-job <id>\r\n
+  KICK_JOB_CMD = /\Akick-job (\d+)\r\n\z/
+  # stats-job <id>\r\n
+  STATS_JOB_CMD = /\Astats-job (\d+)\r\n\z/
+  # stats-tube <tube>\r\n
+  STATS_TUBE_CMD = /\Astats-tube (\[a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  # stats\r\n
+  STATS_CMD = /\Astats\r\n\z/
+  # list-tubes\r\n
+  LIST_TUBES_CMD = /\Alist-tubes\r\n\z/
+  # list-tube-used\r\n
+  LIST_TUBE_USED_CMD = /\Alist-tube-used\r\n\z/
+  # list-tubes-watched\r\n
+  LIST_TUBE_WATCHED_CMD = /\Alist-tube-watched\r\n\z/
+  # quit\r\n
+  QUIT_CMD = /\Aquit\r\n\z/
+
+
   LINE_DELIMITER = "\r\n".freeze
   
   module_function
@@ -63,6 +107,48 @@ module BeanstalkProtocol
       { command: :put, pri: Integer($1), delay: Integer($2), ttr: Integer($3), bytes: Integer($4), data: line }
     when USE_CMD
       { command: :use, tube: $1, data: line }
+    when RESERVE_CMD
+      { command: :reserve, data: line }
+    when RESERVE_WITH_TIMEOUT_CMD
+      { command: :reserve_with_timeout, timeout: Integer($1), data: line }
+    when DELETE_CMD
+      { command: :delete, id: Integer($1), data: line }
+    when RELEASE_CMD
+      { command: :release, id: Integer($1), pri: Integer($2), delay: Integer($3), data: line }
+    when BURY_CMD
+      { command: :bury, id: Integer($1), pri: Integer($2), data: line }
+    when TOUCH_CMD
+      { command: :bury, id: Integer($1), data: line }
+    when WATCH_CMD
+      { command: :watch, tube: $1, data: line }
+    when IGNORE_CMD
+      { command: :ignore, tube: $1, data: line }
+    when PEEK_CMD
+      { command: :peek, id: Integer($1), data: line }
+    when PEEK_READY_CMD
+      { command: :peek_ready, data: line }
+    when PEEK_DELAYED_CMD
+      { command: :peek_delayed, data: line }
+    when PEEK_BURIED_CMD
+      { command: :peek_buried, data: line }
+    when KICK_CMD
+      { command: :kick, bound: Integer($1), data: line }
+    when KICK_JOB_CMD
+      { command: :kick_job, id: Integer($1), data: line }
+    when STATS_JOB_CMD
+      { command: :stats_job, id: Integer($1), data: line }
+    when STATS_TUBE_CMD
+      { command: :stats_tube, tube: $1, data: line }
+    when STATS_CMD
+      { command: :stats, data: line }
+    when LIST_TUBES_CMD
+      { command: :list_tubes, data: line }
+    when LIST_TUBE_USED_CMD
+      { command: :list_tubes_used, data: line }
+    when LIST_TUBE_WATCHED_CMD
+      { command: :list_tube_watched, data: line }
+    when QUIT_CMD
+      { command: :quit, data: line }
     else
       LOGGER.error "Unknown beanstalk command: #{line}"
       fail ParserError
