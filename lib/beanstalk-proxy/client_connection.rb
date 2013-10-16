@@ -1,5 +1,8 @@
+require 'beanstalk-proxy/beanstalk_protocol'
+
 class BeanstalkProxy
   class ClientConnection < EventMachine::Connection
+    include BeanstalkProtocol
     def self.start(host, port)
       $server = EM.start_server(host, port, self)
       LOGGER.info "Listening on #{host}:#{port}"
@@ -9,12 +12,15 @@ class BeanstalkProxy
 
     def post_init
       LOGGER.info "Accepted #{peer}"
-      @buffer = []
+      @buffer_in = ''
+      @buffer_out = ''
       @remote = nil
       @tries = 0
       @connected = false
       @connect_timeout = nil
       @inactivity_timeout = nil
+      @connection_request_state = { state: :header}
+      @connection_response_state = { state: :init}
       BeanstalkProxy.incr
     end
 
@@ -27,47 +33,64 @@ class BeanstalkProxy
     end
 
     def receive_data(data)
-      @buffer << data
-      commands = BeanstalkProxy.router.call(@buffer.join)
-      LOGGER.info "#{peer} #{commands.inspect}"
-      close_connection unless commands.instance_of?(Hash)
-      if !@connected
-        establish_remote_server(commands[:remote]) if commands[:remote] && @remote.nil?
-      end
+      @buffer_in << data
+      loop do
+        bs_cmd = process_request!(@buffer_in, @connection_request_state)
+        LOGGER.debug("process_request bs_cmd=#{bs_cmd.inspect}")
+        break unless bs_cmd
 
-      if close = commands[:close]
-        if close == true
-          close_connection
-        else
-          send_data(close)
-          close_connection_after_writing
+        proxy_commands = BeanstalkProxy.router.call(bs_cmd, self)
+
+        LOGGER.info "#{peer} #{proxy_commands.inspect}"
+        close_connection unless proxy_commands.instance_of?(Hash)
+
+        if proxy_commands[:remote] 
+          if !@connected && @remote.nil?
+            @connect_timeout = proxy_commands[:connect_timeout]
+            @inactivity_timeout = proxy_commands[:inactivity_timeout]
+     
+            establish_remote_server(proxy_commands[:remote]) 
+          end
         end
-      elsif commands[:noop]
-        # do nothing
-      else
-        close_connection
-      end
 
+        if close = proxy_commands[:close]
+          LOGGER.debug "close=#{close}"
+          if close == true
+            close_connection
+          else
+            send_data(close)
+            close_connection_after_writing
+          end
+        elsif proxy_commands[:noop]
+          # do nothing
+        else
+          reply = proxy_commands[:reply]
+          close_connection if @remote.nil? && reply.nil?
+          
+          send_data(reply) unless reply.nil?
+
+          unless @remote.nil?
+            @buffer_out << (proxy_commands[:data] ? proxy_commands[:data] : bs_cmd[:data])
+            if @connected
+              @server_side.send_data(@buffer_out)
+              @buffer_out = ''
+            end
+          end
+        end
+      end
     rescue => e
       close_connection
       LOGGER.error "#{e.class} - #{e.message}"
+      LOGGER.error e.backtrace.join("\n\t")
     end
 
     # Called when new data is available from the client but no remote
     # server has been established. If a remote can be established, an
-    # attempt is made to connect and proxy to the remote server.
+    # attempt is made to connect.
     def establish_remote_server(remote)
       fail "establish_remote_server called with remote established" if @remote
       m, host, port = *remote.match(/^(.+):(.+)$/)
       @remote = [host, port]
-      if data = commands[:data]
-        @buffer = [data]
-      end
-      if reply = commands[:reply]
-        send_data(reply)
-      end
-      @connect_timeout = commands[:connect_timeout]
-      @inactivity_timeout = commands[:inactivity_timeout]
       connect_to_server
     end
 
@@ -82,14 +105,12 @@ class BeanstalkProxy
     end
 
     # Called by the server side immediately after the server connection was
-    # successfully established. Send any buffer we've accumulated and start
-    # raw proxying.
+    # successfully established. Send any buffer we've accumulated .
     def server_connection_success
       LOGGER.info "Successful connection to #{@remote.join(':')}"
       @connected = true
-      @buffer.each { |data| @server_side.send_data(data) }
-      @buffer = []
-      #proxy_incoming_to(@server_side, 10240)
+      @server_side.send_data(@buffer_out)
+      @buffer_out = ''
     end
 
     # Called by the server side when a connection could not be established,
@@ -125,6 +146,7 @@ class BeanstalkProxy
     end
 
     def unbind
+      BeanstalkProxy.client_connection_unbind_callback.call(self)
       @server_side.close_connection_after_writing if @server_side
       BeanstalkProxy.decr
     end

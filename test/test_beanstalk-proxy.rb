@@ -17,41 +17,43 @@ class BeanstalkProxyTest < Test::Unit::TestCase
   end
 
   should "handle simple routing" do
-    assert_proxy('localhost', 9990, 'a', '9980:a')
-    assert_proxy('localhost', 9990, 'b', '9981:b')
+    assert_proxy('localhost', 9990, "use a\r\n", "9980:use a\r\n")
+    assert_proxy('localhost', 9990, "use b\r\n", "9981:use b\r\n")
   end
 
   should "handle connection closing" do
     sock = TCPSocket.new('localhost', 9990)
-    sock.write('xxx')
+    sock.write("xxx\r\n")
     assert_equal nil, sock.read(1)
     sock.close
   end
 
   should "handle rewrite routing" do
-    assert_proxy('localhost', 9990, 'c', '9980:ccc')
+    assert_proxy('localhost', 9990, "use c\r\n", "9980:ccc")
   end
 
   should "handle rewrite closing" do
-    assert_proxy('localhost', 9990, 'd', 'ddd')
+    assert_proxy('localhost', 9990, "use d\r\n", 'ddd')
   end
 
   should "handle data plus reply" do
-    assert_proxy('localhost', 9990, 'g', 'g3-9980:g2')
+    assert_proxy('localhost', 9990, "use g\r\n", 'g3-9980:g2')
   end
 
-  should "handle noop" do
+  should "handle splitted messages" do
     sock = TCPSocket.new('localhost', 9990)
-    sock.write('e' * 2048)
+    sock.write( 'use ' + 'e' * 180)
     sock.flush
     sock.write('f')
-    assert_equal '9980:' + 'e' * 2048 + 'f', sock.read
+    sock.flush
+    sock.write("\r\n")
+    assert_equal '9980:use ' + 'e' * 180 + "f\r\n", sock.read
     sock.close
   end
 
-  should "call proxy_connect_error when a connection is rejected" do
+ should "call proxy_connect_error when a connection is rejected" do
     sock = TCPSocket.new('localhost', 9990)
-    sock.write('connect reject')
+    sock.write("use connect_reject\r\n")
     sock.flush
     assert_equal "", sock.read
     sock.close
@@ -61,7 +63,7 @@ class BeanstalkProxyTest < Test::Unit::TestCase
   should "call proxy_inactivity_error when initial read times out" do
     sock = TCPSocket.new('localhost', 9990)
     sent = Time.now
-    sock.write('inactivity')
+    sock.write("use inactivity\r\n")
     sock.flush
     assert_equal "", sock.read
     assert_operator Time.now - sent, :>=, 1.0
@@ -71,7 +73,7 @@ class BeanstalkProxyTest < Test::Unit::TestCase
 
   should "not consider client disconnect a server error" do
     sock = TCPSocket.new('localhost', 9990)
-    sock.write('inactivity')
+    sock.write("use inactivity\r\n")
     sock.close
     sleep 3.1
     assert !File.exist?(@proxy_error_file)

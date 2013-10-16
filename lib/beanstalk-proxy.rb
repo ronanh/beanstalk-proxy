@@ -5,6 +5,7 @@ require 'socket'
 
 require 'beanstalk-proxy/client_connection'
 require 'beanstalk-proxy/server_connection'
+require 'beanstalk-proxy/beanstalk_protocol'
 
 LOGGER = Logger.new(STDOUT)
 
@@ -88,6 +89,14 @@ class BeanstalkProxy
     @@inactivity_error_callback
   end
 
+  def self.set_client_connection_unbind_callback(&block)
+    @@client_connection_unbind_callback = block
+  end
+
+  def self.client_connection_unbind_callback
+    @@client_connection_unbind_callback
+  end
+
   def self.run(name, host, port)
     @@totalcounter = 0
     @@maxcounter = 0
@@ -96,6 +105,7 @@ class BeanstalkProxy
     @@listen = "#{host}:#{port}"
     @@connect_error_callback ||= proc { |remote| }
     @@inactivity_error_callback ||= proc { |remote| }
+    @@client_connection_unbind_callback ||= proc { |client_connection| }
     self.update_procline
     EM.epoll
 
@@ -125,5 +135,9 @@ module Kernel
 
   def proxy_inactivity_error(&block)
     BeanstalkProxy.set_inactivity_error_callback(&block)
+  end
+
+  def proxy_client_connection_unbind(&block)
+    BeanstalkProxy.set_client_connection_unbind_callback(&block)
   end
 end

@@ -14,7 +14,9 @@ class BeanstalkProxy
     def receive_data(data)
       fail "receive_data called after raw proxy enabled" if @data_received
       @data_received = true
+      LOGGER.info "Server Connection: transferring data to client side and establishing raw proxy"
       @client_side.send_data(data)
+
       proxy_incoming_to(@client_side, 10240)
     end
 
