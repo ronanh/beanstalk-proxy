@@ -10,7 +10,7 @@ module BeanstalkProtocol
   # use <tube>\r\n
   USE_CMD = /\Ause ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
   # reserve\r\n
-  RESERVE_CMD = /\Areserve ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  RESERVE_CMD = /\Areserve\r\n\z/
   # reserve-with-timeout <seconds>\r\n
   RESERVE_WITH_TIMEOUT_CMD = /\Areserve-with-timeout (\d+)\r\n\z/
   # delete <id>\r\n
@@ -40,7 +40,7 @@ module BeanstalkProtocol
   # stats-job <id>\r\n
   STATS_JOB_CMD = /\Astats-job (\d+)\r\n\z/
   # stats-tube <tube>\r\n
-  STATS_TUBE_CMD = /\Astats-tube (\[a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
+  STATS_TUBE_CMD = /\Astats-tube ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199})\r\n\z/
   # stats\r\n
   STATS_CMD = /\Astats\r\n\z/
   # list-tubes\r\n
@@ -48,9 +48,11 @@ module BeanstalkProtocol
   # list-tube-used\r\n
   LIST_TUBE_USED_CMD = /\Alist-tube-used\r\n\z/
   # list-tubes-watched\r\n
-  LIST_TUBE_WATCHED_CMD = /\Alist-tube-watched\r\n\z/
+  LIST_TUBES_WATCHED_CMD = /\Alist-tubes-watched\r\n\z/
   # quit\r\n
   QUIT_CMD = /\Aquit\r\n\z/
+  # pause-tube <tube-name> <delay>\r\n
+  PAUSE_TUBE_CMD = /\Apause-tube ([a-zA-Z0-9+\/;,$_()][a-zA-Z0-9+\/;,$_()\-]{0,199}) (\d+)\r\n\z/
 
 
   LINE_DELIMITER = "\r\n".freeze
@@ -65,6 +67,7 @@ module BeanstalkProtocol
         line = request.slice!(0,index+2)
         command = parse_beanstalk_command(line)
         if command[:command] == :put
+          LOGGER.debug "processing put size=#{command[:bytes]}"
           connection_request_state[:state] = :body
           connection_request_state[:data_size] = command[:bytes]+2
         end
@@ -118,7 +121,7 @@ module BeanstalkProtocol
     when BURY_CMD
       { command: :bury, id: Integer($1), pri: Integer($2), data: line }
     when TOUCH_CMD
-      { command: :bury, id: Integer($1), data: line }
+      { command: :touch, id: Integer($1), data: line }
     when WATCH_CMD
       { command: :watch, tube: $1, data: line }
     when IGNORE_CMD
@@ -144,11 +147,13 @@ module BeanstalkProtocol
     when LIST_TUBES_CMD
       { command: :list_tubes, data: line }
     when LIST_TUBE_USED_CMD
-      { command: :list_tubes_used, data: line }
-    when LIST_TUBE_WATCHED_CMD
-      { command: :list_tube_watched, data: line }
+      { command: :list_tube_used, data: line }
+    when LIST_TUBES_WATCHED_CMD
+      { command: :list_tubes_watched, data: line }
     when QUIT_CMD
       { command: :quit, data: line }
+    when PAUSE_TUBE_CMD
+      { command: :pause_tube, tube: $1, delay: Integer($2), data: line }
     else
       LOGGER.error "Unknown beanstalk command: #{line}"
       fail ParserError
